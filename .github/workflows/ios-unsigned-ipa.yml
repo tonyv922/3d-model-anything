@@ -3,8 +3,6 @@ name: iOS unsigned IPA (no Mac needed)
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/ios-unsigned-ipa.yml'
   workflow_dispatch:
 
 jobs:
@@ -56,6 +54,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
+            OTHER_SWIFT_FLAGS="-Xfrontend -solver-expression-time-threshold=8000" \
             build | tail -60
 
       - name: Package .ipa (Payload/HouseCapture.app)
