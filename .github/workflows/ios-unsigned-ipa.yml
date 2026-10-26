@@ -1,0 +1,77 @@
+name: iOS unsigned IPA (no Mac needed)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-unsigned-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macOS 26 runner ships Xcode 26 (needed for the iOS 26 glassEffect API)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show available Xcode versions
+        run: |
+          ls -1 /Applications | grep -i xcode || true
+          xcodebuild -version || true
+
+      - name: Select newest Xcode
+        run: |
+          set -e
+          XC=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/house-capture
+        run: |
+          xcodegen generate || {
+            echo "::warning::xcodegen failed, retrying with a conservative xcodeVersion"
+            sed -i '' 's/xcodeVersion: "27.0"/xcodeVersion: "16.0"/' project.yml
+            xcodegen generate
+          }
+          ls -d *.xcodeproj
+
+      - name: Build unsigned Release .app
+        working-directory: apps/house-capture
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project HouseCapture.xcodeproj \
+            -scheme HouseCapture \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build | tail -60
+
+      - name: Package .ipa (Payload/HouseCapture.app)
+        working-directory: apps/house-capture
+        run: |
+          set -e
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)
+          echo "APP=$APP"
+          rm -rf Payload HouseCapture.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry HouseCapture.ipa Payload
+          ls -lh HouseCapture.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HouseCapture-unsigned-ipa
+          path: apps/house-capture/HouseCapture.ipa
+          if-no-files-found: error
